@@ -29,6 +29,14 @@ jobs:
           submodules: recursive
           path: external/mbedtls
           persist-credentials: false
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            build
+            tls-build
+            tls-install
+          key: lsl-mac-universal-v1-${{ github.sha }}
+          restore-keys: lsl-mac-universal-v1-
       - name: Build universal static TLS dependency
         run: |
           cmake -S external/mbedtls -B tls-build -G Xcode \
@@ -75,6 +83,18 @@ jobs:
           cp build/_deps/opus-src/COPYING release/ThirdParty/opus.txt
           cp build/_deps/samplerate-src/COPYING release/ThirdParty/libsamplerate.txt
           cp external/mbedtls/LICENSE release/ThirdParty/mbedtls.txt
+          cp external/JUCE/LICENSE.md release/ThirdParty/JUCE.md
+          python3 - <<'PYLICENSE'
+          from pathlib import Path
+          import shutil
+          for dependency in ('libjuice', 'libsrtp', 'usrsctp', 'plog'):
+              root = Path('build/_deps/rtc-src/deps') / dependency
+              for source in root.rglob('*'):
+                  if source.is_file() and source.name.lower().startswith(('license', 'copying')):
+                      target = Path('release/ThirdParty') / dependency / source.relative_to(root)
+                      target.parent.mkdir(parents=True, exist_ok=True)
+                      shutil.copyfile(source, target)
+          PYLICENSE
           printf 'Source: %s\nJUCE: %s\n' "$GITHUB_SHA" "$(git -C external/JUCE rev-parse HEAD)" > release/BUILD-INFO.txt
           ditto -c -k --sequesterRsrc --keepParent release Lindell-Streams-Mac-VST3.zip
       - uses: actions/upload-artifact@v7
@@ -83,3 +103,11 @@ jobs:
           path: Lindell-Streams-Mac-VST3.zip
           if-no-files-found: error
           retention-days: 30
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: |
+            build
+            tls-build
+            tls-install
+          key: lsl-mac-universal-v1-${{ github.sha }}

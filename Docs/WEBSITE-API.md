@@ -1,3 +1,5 @@
+> Website v22 API contract, included from the website handoff. The v0.3 VST3 implements this protocol. It keeps connection keys only in memory; persistent Keychain storage is not implemented. Website deployment and off-site relay tests remain separate.
+
 # Lindell Live v1: website-to-AAX integration
 
 This is the IMPLEMENTED website API in v22. It supersedes the proposed

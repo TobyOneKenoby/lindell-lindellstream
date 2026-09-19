@@ -59,7 +59,7 @@ struct MediaPeer {
  bool answered=false;
  std::string id;
  ~MediaPeer(){close();}
- void close(){if(pc)pc->close();}
+ void close() noexcept {try{if(pc)pc->close();}catch(...){}}
  bool connected()const{return pc->state()==rtc::PeerConnection::State::Connected&&track->isOpen();}
  MediaPeer(const rtc::Configuration& config,const std::string& offer,std::string peerId):id(std::move(peerId)){
   rtc::Description remote(offer,rtc::Description::Type::Offer);
@@ -81,7 +81,8 @@ struct MediaPeer {
  }
  std::string answer()const{if(pc->gatheringState()!=rtc::PeerConnection::GatheringState::Complete)return {};auto d=pc->localDescription();return d?std::string(*d):std::string{};}
  void send(const unsigned char* bytes,size_t n){
-  if(connected()&&track->bufferedAmount()<16000){rtp->timestamp+=960;track->send(reinterpret_cast<const rtc::byte*>(bytes),n);}
+  rtp->timestamp+=960;
+  if(connected()&&track->bufferedAmount()<16000){track->send(reinterpret_cast<const rtc::byte*>(bytes),n);}
  }
 };
 }

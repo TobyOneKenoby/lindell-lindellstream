@@ -1,3 +1,5 @@
+> Historical v0.2 handoff. For the implemented v0.3 sender and current build/test scope, see README.md and WEBSITE-API.md. Statements below about a local-only sender or proposed API describe the old package. AAX remains untested.
+
 # Emmanuel's integration handoff
 
 ## Product contract

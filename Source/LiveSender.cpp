@@ -59,7 +59,7 @@ LiveSender::Response LiveSender::post(const juce::String& action,const juce::Str
 }
 void LiveSender::controlLoop(){
  std::uint32_t active=0;juce::String session,key,link;bool verified=false;rtc::Configuration config;
- std::map<std::string,std::shared_ptr<MediaPeer>> members;std::int64_t nextPoll=0;
+ std::map<std::string,std::shared_ptr<MediaPeer>> members;std::int64_t nextPoll=0,nextIceRefresh=0;
  auto finish=[&]{captureGeneration=0;closePeers();members.clear();if(session.isNotEmpty()&&!shuttingDown){juce::StringPairArray f;f.set("session",session);post("Stop",key,f);}session.clear();};
  try {
  while(!shuttingDown){
@@ -81,12 +81,15 @@ void LiveSender::controlLoop(){
      auto response=post("Start",key,f);session=response.json["session"].toString();
      if(revision!=active){finish();continue;}
      if(!response.ok()||session.length()!=32){session.clear();setView(State::Error,response.status==409?"This playlist already has a broadcaster. End it on the website first.":"Could not start. If the request timed out, wait 25 seconds before retrying.");}
-     else{bool relay=false;config=iceConfig(response.json["iceServers"],relay);{std::lock_guard<std::mutex> lock(stateMutex);snapshot.relay=relay;}lastAudioTime=nowMs();mediaFailed=false;captureGeneration=active;nextPoll=0;setView(State::Live,"On air - waiting for a listener.");}
+     else{bool relay=false;config=iceConfig(response.json["iceServers"],relay);{std::lock_guard<std::mutex> lock(stateMutex);snapshot.relay=relay;}lastAudioTime=nowMs();mediaFailed=false;captureGeneration=active;nextPoll=0;nextIceRefresh=nowMs()+300000;setView(State::Live,"On air - waiting for a listener.");}
     }
    }
   }
   if(session.isNotEmpty()&&revision==active){
    if(mediaFailed||nowMs()-lastAudioTime.load()>3000){stop();finish();active=revision.load();setView(State::Error,mediaFailed?"Audio sender stopped after a transport error. Reconnect to retry.":"Broadcast stopped: the host stopped delivering audio.");continue;}
+   if(nowMs()>=nextIceRefresh){juce::StringPairArray f;f.set("link",link);auto response=post("Resolve",key,f);if(revision!=active)continue;
+    if(!response.ok()){stop();finish();active=revision.load();verified=false;setView(State::Error,"Connection authorization could not be refreshed. Reconnect to continue.");continue;}bool relay=false;config=iceConfig(response.json["iceServers"],relay);nextIceRefresh=nowMs()+300000;
+   }
    if(nowMs()>=nextPoll){juce::StringPairArray f;f.set("session",session);auto response=post("Poll",key,f);if(revision!=active)continue;
     if(!response.ok()||!response.json["peers"].isArray()){stop();finish();active=revision.load();verified=false;setView(State::Error,"Live connection ended or network lost. Reconnect to continue.");continue;}
     nextPoll=nowMs()+1000;std::set<std::string> present;
@@ -97,7 +100,7 @@ void LiveSender::controlLoop(){
     for(auto i=members.begin();i!=members.end();){if(!present.count(i->first)){i->second->close();i=members.erase(i);}else ++i;}
     {std::lock_guard<std::mutex> lock(peerMutex);peers.clear();for(auto& pair:members)peers.push_back(pair.second);}
    }
-   for(auto& item:members){auto& peer=item.second;if(!peer->answered){auto answer=peer->answer();if(!answer.empty()){juce::StringPairArray f;f.set("session",session);f.set("peer",item.first);f.set("answer",juce::String(answer));auto response=post("Answer",key,f);if(revision!=active)break;if(response.ok())peer->answered=true;else if(response.status==404){peer->answered=true;peer->close();}else{stop();break;}}}}
+   for(auto& item:members){auto& peer=item.second;if(!peer->answered){auto answer=peer->answer();if(!answer.empty()){juce::StringPairArray f;f.set("session",session);f.set("peer",item.first);f.set("answer",juce::String(answer));auto response=post("Answer",key,f);if(revision!=active)break;if(response.ok())peer->answered=true;else if(response.status==404){peer->answered=true;peer->close();}else{stop();}break;}}}
    int listeners=0;for(auto& item:members)if(item.second->connected())++listeners;
    {std::lock_guard<std::mutex> lock(stateMutex);if(revision==active){snapshot.listeners=listeners;snapshot.message=listeners>0?"On air - "+juce::String(listeners)+" connected listener(s).":"On air - waiting for a listener.";}}
   }
@@ -113,8 +116,8 @@ void LiveSender::mediaLoop(){
   const auto g=captureGeneration.load();if(g!=lastGeneration){encoder.reset();lastGeneration=g;}
   int drained=0;std::vector<Packet> recent;
   while(drained++<32&&tap.queue.pop(packet)){if(g&&packet.generation==g)recent.push_back(packet);}
-  // After any worker stall, discard all but the newest ~40 ms. Never burst stale music.
-  size_t first=0;double ms=0;for(size_t i=recent.size();i>0;--i){ms+=1000.0*recent[i-1].frames/recent[i-1].sampleRate;if(ms>40){first=i;break;}}
+  // After any worker stall, discard all but the newest ~100 ms. Never burst stale music.
+  size_t first=0;double ms=0;for(size_t i=recent.size();i>0;--i){ms+=1000.0*recent[i-1].frames/recent[i-1].sampleRate;if(ms>100){first=i;break;}}
   for(size_t i=first;i<recent.size();++i){if(captureGeneration!=g||revision!=g)break;lastAudioTime=nowMs();
    encoder.process(recent[i],[&](const unsigned char* bytes,size_t n){if(captureGeneration!=g||revision!=g)return;std::vector<std::shared_ptr<MediaPeer>> destinations;{std::lock_guard<std::mutex> lock(peerMutex);destinations=peers;}
     for(auto& peer:destinations){if(captureGeneration!=g||revision!=g)break;try{peer->send(bytes,n);}catch(...){peer->close();}}framesSent.fetch_add(960);
