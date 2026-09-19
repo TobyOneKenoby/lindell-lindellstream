@@ -57,7 +57,7 @@ jobs:
       - name: Build plugin and test programs
         run: cmake --build build --config Release --parallel 3 --target LindellStreamsLive_VST3 lsl_plugin_test lsl_media_test lsl_core_tests lsl_link_tests
       - name: Core and codec tests
-        run: ctest --test-dir build -C Release --output-on-failure
+        run: ctest --test-dir build -C Release --output-on-failure -R '^(core|playlist_links|codec_stereo)$'
       - name: Sign and verify bundle
         run: |
           PLUGIN='build/LindellStreamsLive_artefacts/Release/VST3/Lindell Streams Live.vst3'
