@@ -1,0 +1,37 @@
+LINDELL STREAMS LIVE 0.3 - MAC VST3 TEST BUILD
+
+Quit REAPER. Copy the entire Lindell Streams Live.vst3 bundle into:
+/Library/Audio/Plug-Ins/VST3/
+(or ~/Library/Audio/Plug-Ins/VST3/ for just your user account).
+
+The development build is ad-hoc signed, not Apple notarized. If macOS blocks
+this exact build, approve it in Privacy & Security, or remove only its quarantine:
+xattr -dr com.apple.quarantine "/Library/Audio/Plug-Ins/VST3/Lindell Streams Live.vst3"
+
+Restart REAPER and rescan VST3 plugins. Insert LAST on your stereo master bus.
+The host audio passes through unchanged; no reported plugin latency.
+
+CONNECT
+1. Sign into https://lindell-streams.com/ and open your playlist's Live panel.
+2. Copy its playlist Share link, and create a PRIVATE connection key.
+3. Paste both into the plugin, then CONNECT. Never send the private key to a listener.
+4. Confirm the playlist title, then press GO LIVE.
+5. Listeners open the normal playlist share link and select Live / Listen Live.
+6. Use STOP BROADCAST to end the session. Closing the editor does not stop it.
+
+The private key stays in memory and is not saved in projects. The playlist link
+is saved with the project and gives its holders listening access.
+Recall/duplication, host reconfiguration, bypass, offline bounce and missing host
+audio stop the sender. Restart is always manual.
+
+Outgoing audio: Opus stereo, 48 kHz, 192 kbps target VBR. A sinc resampler converts
+only the outgoing copy at other host rates. This is NOT a lossless stream.
+Website protocol: lindell-live-webrtc-v1 (v22 Live update). No website deployment
+or relay provisioning occurs when installing this plugin. The saved v22 website
+must already be installed. At most eight peer-to-peer listeners.
+
+This build uses libjuice: UDP STUN/TURN only; TURN TCP/TLS is not supported.
+A configured UDP TURN relay is needed for reliable cross-network testing. If your
+network blocks UDP, this version may fail to connect. No relay is included.
+Local native-to-Chromium stereo tests are part of CI. Your production playlist,
+external networks, REAPER and long-running sessions still need user testing.

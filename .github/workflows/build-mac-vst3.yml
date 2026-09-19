@@ -1,0 +1,85 @@
+name: Build Lindell Streams Mac VST3
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: live-mac-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          repository: juce-framework/JUCE
+          ref: 8.0.15
+          path: external/JUCE
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          repository: Mbed-TLS/mbedtls
+          ref: v3.6.4
+          submodules: recursive
+          path: external/mbedtls
+          persist-credentials: false
+      - name: Build universal static TLS dependency
+        run: |
+          cmake -S external/mbedtls -B tls-build -G Xcode \
+            '-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64' -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 \
+            -DENABLE_PROGRAMS=OFF -DENABLE_TESTING=OFF -DMBEDTLS_FATAL_WARNINGS=OFF \
+            -DUSE_SHARED_MBEDTLS_LIBRARY=OFF -DUSE_STATIC_MBEDTLS_LIBRARY=ON \
+            -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/tls-install"
+          cmake --build tls-build --config Release --parallel 3
+          cmake --install tls-build --config Release
+      - name: Configure universal VST3
+        run: |
+          cmake -S . -B build -G Xcode \
+            -DJUCE_PATH="$GITHUB_WORKSPACE/external/JUCE" \
+            -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/tls-install" \
+            '-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64' -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+      - name: Build plugin and test programs
+        run: cmake --build build --config Release --parallel 3 --target LindellStreamsLive_VST3 lsl_plugin_test lsl_media_test lsl_core_tests lsl_link_tests
+      - name: Core and codec tests
+        run: ctest --test-dir build -C Release --output-on-failure
+      - name: Sign and verify bundle
+        run: |
+          PLUGIN='build/LindellStreamsLive_artefacts/Release/VST3/Lindell Streams Live.vst3'
+          lipo "$PLUGIN/Contents/MacOS/Lindell Streams Live" -verify_arch arm64 x86_64
+          codesign --force --sign - --timestamp=none "$PLUGIN"
+          codesign --verify --strict --verbose=2 "$PLUGIN"
+          otool -L "$PLUGIN/Contents/MacOS/Lindell Streams Live" > dependencies.txt
+          if grep -E '/opt/homebrew|/Users/runner|/usr/local' dependencies.txt; then exit 1; fi
+      - name: Load actual VST3, null test and render UI
+        run: build/lsl_plugin_test_artefacts/Release/lsl_plugin_test "$GITHUB_WORKSPACE/build/LindellStreamsLive_artefacts/Release/VST3/Lindell Streams Live.vst3"
+      - name: Install browser for real WebRTC test
+        run: |
+          npm install --no-save --package-lock=false playwright@1.51.1
+          npx playwright install chromium
+      - name: Verify decoded stereo audio in Chromium
+        run: node Tests/BrowserTest.cjs "$GITHUB_WORKSPACE/build/Release/lsl_media_test"
+      - name: Package plugin
+        run: |
+          mkdir -p release
+          ditto 'build/LindellStreamsLive_artefacts/Release/VST3/Lindell Streams Live.vst3' 'release/Lindell Streams Live.vst3'
+          cp INSTALL-PLUGIN.txt Lindell-Streams-Preview.png dependencies.txt release/
+          mkdir -p release/ThirdParty
+          cp build/_deps/rtc-src/LICENSE release/ThirdParty/libdatachannel.txt
+          cp build/_deps/opus-src/COPYING release/ThirdParty/opus.txt
+          cp build/_deps/samplerate-src/COPYING release/ThirdParty/libsamplerate.txt
+          cp external/mbedtls/LICENSE release/ThirdParty/mbedtls.txt
+          printf 'Source: %s\nJUCE: %s\n' "$GITHUB_SHA" "$(git -C external/JUCE rev-parse HEAD)" > release/BUILD-INFO.txt
+          ditto -c -k --sequesterRsrc --keepParent release Lindell-Streams-Mac-VST3.zip
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Lindell-Streams-Mac-VST3-${{ github.run_number }}
+          path: Lindell-Streams-Mac-VST3.zip
+          if-no-files-found: error
+          retention-days: 30
