@@ -35,6 +35,9 @@ FetchContent_Declare(rtc GIT_REPOSITORY https://github.com/paullouisageneau/libd
 FetchContent_Declare(opus GIT_REPOSITORY https://github.com/xiph/opus.git GIT_TAG v1.5.2 GIT_SHALLOW TRUE)
 FetchContent_Declare(samplerate GIT_REPOSITORY https://github.com/libsndfile/libsamplerate.git GIT_TAG 0.2.2 GIT_SHALLOW TRUE)
 FetchContent_MakeAvailable(rtc opus samplerate)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+execute_process(COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/Scripts/patch-relay-policy.py" "${rtc_SOURCE_DIR}"
+  COMMAND_ERROR_IS_FATAL ANY)
 if(APPLE)
  target_compile_options(srtp2 PRIVATE -Wno-error=shorten-64-to-32)
 endif()

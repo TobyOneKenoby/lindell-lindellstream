@@ -28,7 +28,7 @@ try:
     if match:
         previous = match[1]
         unchanged = subprocess.run(['git', 'diff', '--quiet', previous, 'HEAD', '--',
-                                    'Source', 'CMakeLists.txt', 'Tests/*.cpp']).returncode == 0
+                                    'Source', 'CMakeLists.txt', 'Tests/*.cpp', 'Scripts/patch-relay-policy.py']).returncode == 0
         workflow = '.github/workflows/build-mac-vst3.yml'
         same_recipe = native_recipe(git('show', previous + ':' + workflow)) == native_recipe(Path(workflow).read_text())
         present = all(Path(p).exists() for p in (
