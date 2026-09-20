@@ -15,6 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/checkout@v6
         with:
@@ -30,6 +31,7 @@ jobs:
           path: external/mbedtls
           persist-credentials: false
       - uses: actions/cache/restore@v4
+        id: native-cache
         with:
           path: |
             build
@@ -37,7 +39,13 @@ jobs:
             tls-install
           key: lsl-mac-universal-v1-${{ github.sha }}
           restore-keys: lsl-mac-universal-v1-
+      - name: Check native build inputs
+        id: native-reuse
+        env:
+          NATIVE_CACHE_KEY: ${{ steps.native-cache.outputs.cache-matched-key }}
+        run: python3 Scripts/can-reuse-native.py
       - name: Build universal static TLS dependency
+        if: steps.native-reuse.outputs.reuse != 'true'
         run: |
           python3 external/mbedtls/scripts/config.py -f external/mbedtls/include/mbedtls/mbedtls_config.h set MBEDTLS_SSL_DTLS_SRTP
           cmake -S external/mbedtls -B tls-build -G Xcode \
@@ -48,6 +56,7 @@ jobs:
           cmake --build tls-build --config Release --parallel 3
           cmake --install tls-build --config Release
       - name: Configure universal VST3
+        if: steps.native-reuse.outputs.reuse != 'true'
         run: |
           cmake -S . -B build -G Xcode \
             -DJUCE_PATH="$GITHUB_WORKSPACE/external/JUCE" \
@@ -55,6 +64,7 @@ jobs:
             '-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64' -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 \
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5
       - name: Build plugin and test programs
+        if: steps.native-reuse.outputs.reuse != 'true'
         run: cmake --build build --config Release --parallel 3 --target LindellStreamsLive_VST3 lsl_plugin_test lsl_media_test lsl_core_tests lsl_link_tests
       - name: Core and codec tests
         run: ctest --test-dir build -C Release --output-on-failure -R '^(core|playlist_links|codec_stereo)$'
@@ -75,6 +85,8 @@ jobs:
       - name: Verify decoded stereo audio in Chromium
         run: node Tests/BrowserTest.cjs "$GITHUB_WORKSPACE/build/Release/lsl_media_test"
       - name: Package plugin
+        env:
+          NATIVE_SOURCE: ${{ steps.native-reuse.outputs.source }}
         run: |
           mkdir -p release
           ditto 'build/LindellStreamsLive_artefacts/Release/VST3/Lindell Streams Live.vst3' 'release/Lindell Streams Live.vst3'
@@ -96,7 +108,7 @@ jobs:
                       target.parent.mkdir(parents=True, exist_ok=True)
                       shutil.copyfile(source, target)
           PYLICENSE
-          printf 'Source: %s\nJUCE: %s\n' "$GITHUB_SHA" "$(git -C external/JUCE rev-parse HEAD)" > release/BUILD-INFO.txt
+          printf 'Source: %s\nJUCE: %s\n' "$NATIVE_SOURCE" "$(git -C external/JUCE rev-parse HEAD)" > release/BUILD-INFO.txt
           ditto -c -k --sequesterRsrc --keepParent release Lindell-Streams-Mac-VST3.zip
       - uses: actions/upload-artifact@v7
         with:
