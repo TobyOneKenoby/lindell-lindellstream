@@ -1,3 +1,9 @@
+# 0.3.1 — REAPER clipboard fix
+
+- Request keyboard focus from the VST3 host so text fields can handle Command-V.
+- Add separate mouse-operated Paste buttons for the playlist link and private key.
+- Verify system clipboard paste and text-editor shortcuts in the macOS UI test.
+
 # 0.3.0 — Native VST3 streaming beta
 
 - Add authenticated playlist Resolve/Start/Poll/Answer/Stop integration with the saved website Live API.

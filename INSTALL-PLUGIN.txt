@@ -1,4 +1,4 @@
-LINDELL STREAMS LIVE 0.3 - MAC VST3 TEST BUILD
+LINDELL STREAMS LIVE 0.3.1 - MAC VST3 TEST BUILD
 
 Quit REAPER. Copy the entire Lindell Streams Live.vst3 bundle into:
 /Library/Audio/Plug-Ins/VST3/
@@ -14,7 +14,7 @@ The host audio passes through unchanged; no reported plugin latency.
 CONNECT
 1. Sign into https://lindell-streams.com/ and open your playlist's Live panel.
 2. Copy its playlist Share link, and create a PRIVATE connection key.
-3. Paste both into the plugin, then CONNECT. Never send the private key to a listener.
+3. Use the PASTE button beside each field (or Command-V), then CONNECT. Never send the private key to a listener.
 4. Confirm the playlist title, then press GO LIVE.
 5. Listeners open the normal playlist share link and select Live / Listen Live.
 6. Use STOP BROADCAST to end the session. Closing the editor does not stop it.

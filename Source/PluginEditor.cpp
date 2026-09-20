@@ -2,8 +2,14 @@
 namespace {const juce::Colour ink(0xff163447),cyan(0xff85d8ff),muted(0xff587083);float db(float v){return juce::Decibels::gainToDecibels(v,-60.f);}}
 LindellLiveEditor::LindellLiveEditor(LindellLiveProcessor& p):AudioProcessorEditor(p),processor(p){
  look.setColour(juce::TextButton::buttonColourId,ink);look.setColour(juce::TextButton::textColourOffId,juce::Colours::white);setLookAndFeel(&look);
- for(auto* b:{&connect,&live,&reset})addAndMakeVisible(*b);
- for(auto* t:{&link,&key}){addAndMakeVisible(*t);t->setColour(juce::TextEditor::backgroundColourId,juce::Colour(0xfff6f9fb));t->setColour(juce::TextEditor::textColourId,ink);t->setColour(juce::TextEditor::outlineColourId,juce::Colour(0xffa2b9c7));t->setFont(juce::Font(juce::FontOptions(13.f)));t->setSelectAllWhenFocused(true);}
+ for(auto* b:{&connect,&live,&reset,&pasteLink,&pasteKey})addAndMakeVisible(*b);
+ for(auto* t:{&link,&key}){addAndMakeVisible(*t);t->setColour(juce::TextEditor::backgroundColourId,juce::Colour(0xfff6f9fb));t->setColour(juce::TextEditor::textColourId,ink);t->setColour(juce::TextEditor::outlineColourId,juce::Colour(0xffa2b9c7));t->setFont(juce::Font(juce::FontOptions(13.f)));t->setSelectAllWhenFocused(true);t->setWantsKeyboardFocus(true);t->setPopupMenuEnabled(true);}
+ setWantsKeyboardFocus(true);
+ link.setComponentID("playlistLink");key.setComponentID("connectionKey");
+ pasteLink.setComponentID("pastePlaylistLink");pasteKey.setComponentID("pasteConnectionKey");
+ pasteLink.setTooltip("Paste the playlist share link from the macOS clipboard.");
+ pasteKey.setTooltip("Paste the private connection key from the macOS clipboard.");
+ pasteLink.onClick=[this]{pasteInto(link);};pasteKey.onClick=[this]{pasteInto(key);};
  link.setText(processor.getPlaylistLink(),false);link.setTextToShowWhenEmpty("https://lindell-streams.com/?share=...",muted);link.setInputRestrictions(2048);link.setTitle("Playlist share link");
  key.setPasswordCharacter('*');key.setInputRestrictions(64,"0123456789abcdefABCDEF");key.setTextToShowWhenEmpty("Private key from the playlist Live panel",muted);key.setTitle("Private connection key");
  key.setTooltip("Kept only in memory; never saved in your DAW project. Create this key in your playlist's Live panel.");
@@ -16,7 +22,15 @@ LindellLiveEditor::LindellLiveEditor(LindellLiveProcessor& p):AudioProcessorEdit
  setSize(740,510);lastRevision=processor.destinationRevision;startTimerHz(30);timerCallback();
 }
 LindellLiveEditor::~LindellLiveEditor(){stopTimer();setLookAndFeel(nullptr);}
-void LindellLiveEditor::resized(){link.setBounds(43,153,431,34);key.setBounds(43,218,316,34);connect.setBounds(370,218,104,34);title.setBounds(39,268,439,30);live.setBounds(43,312,431,49);status.setBounds(39,372,439,58);reset.setBounds(544,405,153,27);}
+void LindellLiveEditor::pasteInto(juce::TextEditor& editor){
+ if(!editor.isEnabled())return;
+ const auto text=juce::SystemClipboard::getTextFromClipboard().trim();
+ if(text.isEmpty())return;
+ // Mouse-driven paste avoids DAW shortcut interception. Pasting never authorizes a session.
+ processor.sender.disconnect();
+ editor.setText(text,true);editor.grabKeyboardFocus();editor.selectAll();
+}
+void LindellLiveEditor::resized(){link.setBounds(43,153,351,34);pasteLink.setBounds(402,153,72,34);key.setBounds(43,218,236,34);pasteKey.setBounds(287,218,72,34);connect.setBounds(370,218,104,34);title.setBounds(39,268,439,30);live.setBounds(43,312,431,49);status.setBounds(39,372,439,58);reset.setBounds(544,405,153,27);}
 void LindellLiveEditor::timerCallback(){
  auto h=processor.tap.heartbeat.load();idleTicks=h==lastHeartbeat?std::min(idleTicks+1,1000):0;lastHeartbeat=h;
  for(int c=0;c<2;++c){displayPeak[c]=idleTicks>5?displayPeak[c]*.85f:processor.tap.peak[c].load();displayRms[c]=idleTicks>5?displayRms[c]*.85f:processor.tap.rms[c].load();}
@@ -24,7 +38,7 @@ void LindellLiveEditor::timerCallback(){
  current=processor.sender.view();using S=lsl::LiveSender::State;bool broadcasting=current.state==S::Live||current.state==S::Starting;
  live.setButtonText(broadcasting?"STOP BROADCAST":"GO LIVE");live.setEnabled(broadcasting||current.state==S::Ready);
  live.setColour(juce::TextButton::buttonColourId,broadcasting?juce::Colour(0xffab3844):ink);
- connect.setEnabled(!broadcasting&&current.state!=S::Connecting);link.setEnabled(!broadcasting);key.setEnabled(!broadcasting);
+ connect.setEnabled(!broadcasting&&current.state!=S::Connecting);link.setEnabled(!broadcasting);key.setEnabled(!broadcasting);pasteLink.setEnabled(!broadcasting);pasteKey.setEnabled(!broadcasting);
  status.setText(current.message,juce::dontSendNotification);title.setText(current.title.isEmpty()?"No playlist connected":current.title,juce::dontSendNotification);repaint();
 }
 void LindellLiveEditor::meter(juce::Graphics& g,int c,int x){
@@ -45,5 +59,5 @@ void LindellLiveEditor::paint(juce::Graphics& g){
  meter(g,0,554);meter(g,1,654);g.setFont(10.f);for(int value:{0,-12,-24,-36,-48,-60})g.drawText(juce::String(value),602,152+(int)(-value/60.f*209),33,15,juce::Justification::centred);
  g.setFont(11.f);g.drawText("STEREO / PEAK + RMS",531,92,184,20,juce::Justification::centred);
  bool onAir=current.state==lsl::LiveSender::State::Live;g.setColour(onAir?juce::Colour(0xffe05454):muted);g.fillEllipse(557,52,8,8);g.setColour(ink);g.setFont(12.f);g.drawText(onAir?"ON AIR":"OFFLINE",575,44,117,24,juce::Justification::left);
- g.setFont(11.f);g.drawText("Host audio unchanged  |  Stream: stereo Opus, 48 kHz / 192 kbps target",30,458,680,20,juce::Justification::left);g.setColour(muted);g.setFont(10.f);g.drawText("Close editor: broadcast continues. Use STOP to end.   /   TEST BUILD 0.3",30,480,680,17,juce::Justification::left);
+ g.setFont(11.f);g.drawText("Host audio unchanged  |  Stream: stereo Opus, 48 kHz / 192 kbps target",30,458,680,20,juce::Justification::left);g.setColour(muted);g.setFont(10.f);g.drawText("Close editor: broadcast continues. Use STOP to end.   /   TEST BUILD 0.3.1",30,480,680,17,juce::Justification::left);
 }

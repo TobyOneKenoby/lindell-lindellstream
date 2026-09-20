@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(LindellStreamsLive VERSION 0.3.0 LANGUAGES C CXX)
+project(LindellStreamsLive VERSION 0.3.1 LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -49,6 +49,7 @@ juce_add_plugin(LindellStreamsLive
  COMPANY_NAME "Lindell Streams" BUNDLE_ID "com.lindellstreams.live.dev"
  PLUGIN_MANUFACTURER_CODE Lnds PLUGIN_CODE Lslv PRODUCT_NAME "Lindell Streams Live"
  FORMATS ${LSL_FORMATS} IS_SYNTH FALSE NEEDS_MIDI_INPUT FALSE NEEDS_MIDI_OUTPUT FALSE
+ EDITOR_WANTS_KEYBOARD_FOCUS TRUE
  COPY_PLUGIN_AFTER_BUILD FALSE)
 set(LSL_SOURCES Source/PluginProcessor.cpp Source/PluginEditor.cpp Source/LiveSender.cpp)
 target_sources(LindellStreamsLive PRIVATE ${LSL_SOURCES})
