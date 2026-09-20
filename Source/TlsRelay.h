@@ -6,6 +6,7 @@
 #include <Security/Security.h>
 #include <sys/socket.h>
 #include <netdb.h>
+#include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <poll.h>
@@ -56,7 +57,7 @@ private:
   bool connected=false;const auto deadline=Clock::now()+std::chrono::seconds(5);
   for(auto a=list;a&&!stopping&&Clock::now()<deadline;a=a->ai_next){
    tcp=::socket(a->ai_family,a->ai_socktype,a->ai_protocol);if(tcp<0)continue;
-   int yes=1;setsockopt(tcp,SOL_SOCKET,SO_NOSIGPIPE,&yes,sizeof(yes));fcntl(tcp,F_SETFL,O_NONBLOCK);
+   int yes=1;setsockopt(tcp,SOL_SOCKET,SO_NOSIGPIPE,&yes,sizeof(yes));setsockopt(tcp,IPPROTO_TCP,TCP_NODELAY,&yes,sizeof(yes));fcntl(tcp,F_SETFL,O_NONBLOCK);
    int rc=::connect(tcp,a->ai_addr,a->ai_addrlen);
    if(rc==0)connected=true;
    else if(errno==EINPROGRESS){while(!stopping&&Clock::now()<deadline){pollfd fd{tcp,POLLOUT,0};if(poll(&fd,1,50)>0){int error=0;socklen_t size=sizeof(error);connected=getsockopt(tcp,SOL_SOCKET,SO_ERROR,&error,&size)==0&&error==0;break;}}}
