@@ -74,7 +74,7 @@ jobs:
           sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain tls-fixture/cert.pem
           python3 Tests/tls-echo.py tls-fixture/cert.pem tls-fixture/key.pem > tls-fixture/server.log 2>&1 &
           TLS_FIXTURE_PID=$!
-          trap 'kill "$TLS_FIXTURE_PID"; sudo security remove-trusted-cert -d tls-fixture/cert.pem' EXIT
+          trap 'kill "$TLS_FIXTURE_PID"' EXIT
           sleep 1
           build/Release/lsl_tls_test
       - name: Core and codec tests
@@ -98,10 +98,9 @@ jobs:
       - name: Verify decoded stereo through a TLS-only TURN server
         run: |
           brew install coturn
-          sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain tls-fixture/cert.pem
           turnserver -n --no-cli --no-dtls --no-udp --no-tcp-relay --listening-ip=127.0.0.1 --relay-ip=127.0.0.1 --listening-port=18445 --tls-listening-port=18444 --min-port=49160 --max-port=49200 --cert="$GITHUB_WORKSPACE/tls-fixture/cert.pem" --pkey="$GITHUB_WORKSPACE/tls-fixture/key.pem" --realm=lindell-ci --lt-cred-mech --user=fixture:fixture-password --allow-loopback-peers --no-multicast-peers > tls-fixture/turn.log 2>&1 &
           TURN_FIXTURE_PID=$!
-          trap 'kill "$TURN_FIXTURE_PID"; sudo security remove-trusted-cert -d tls-fixture/cert.pem' EXIT
+          trap 'kill "$TURN_FIXTURE_PID"' EXIT
           sleep 2
           LSL_TEST_TLS_RELAY=1 node Tests/BrowserTest.cjs "$GITHUB_WORKSPACE/build/Release/lsl_media_test"
       - name: Package plugin
