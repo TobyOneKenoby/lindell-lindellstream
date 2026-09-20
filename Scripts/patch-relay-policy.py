@@ -21,3 +21,6 @@ patch("src/impl/icetransport.cpp",
 patch("deps/libjuice/src/agent.c",
       "ice_candidate_t *remote) {\n\tice_candidate_pair_t pair;",
       "ice_candidate_t *remote) {\n\tif (agent->config.lindell_relay_only && (!local || local->type != ICE_CANDIDATE_TYPE_RELAYED))\n\t\treturn 0;\n\tice_candidate_pair_t pair;")
+patch("deps/libjuice/src/agent.c",
+      "agent->config.concurrency_mode = config->concurrency_mode;",
+      "agent->config.concurrency_mode = config->concurrency_mode;\n\tagent->config.lindell_relay_only = config->lindell_relay_only;")
