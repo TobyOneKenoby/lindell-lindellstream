@@ -12,11 +12,11 @@ const fs=require('node:fs');const http=require('node:http');const {spawn}=requir
   await pc.setLocalDescription(description);await new Promise((resolve,reject)=>{if(pc.iceGatheringState==='complete')return resolve();const timeout=setTimeout(()=>reject(Error('Browser ICE gathering timeout')),10000);pc.onicegatheringstatechange=()=>{if(pc.iceGatheringState==='complete'){clearTimeout(timeout);resolve();}};});return pc.localDescription.sdp;
  });
  const offerFile=path.join(temp,'offer.sdp'),answerFile=path.join(temp,'answer.sdp');fs.writeFileSync(offerFile,offer);
- sender=spawn(process.argv[2],['--browser',offerFile,answerFile],{stdio:['ignore','pipe','pipe']});let senderError='';sender.stderr.on('data',b=>senderError+=b.toString());
+ sender=spawn(process.argv[2],['--browser',offerFile,answerFile],{stdio:['ignore','pipe','pipe']});let senderError='';sender.stderr.on('data',b=>{senderError+=b.toString();process.stderr.write(b);});sender.stdout.on('data',b=>process.stdout.write(b));
  const completion=new Promise((resolve,reject)=>{sender.once('error',reject);sender.once('exit',code=>resolve(code));});
  for(let n=0;!fs.existsSync(answerFile)&&n<300;n++)await new Promise(r=>setTimeout(r,50));if(!fs.existsSync(answerFile))throw Error('Native answer missing: '+senderError);
- await page.evaluate(answer=>pc.setRemoteDescription({type:'answer',sdp:answer}),fs.readFileSync(answerFile,'utf8'));
- await page.waitForFunction(()=>pc.connectionState==='connected'&&analysers.length===2,null,{timeout:15000});await page.waitForTimeout(2000);
+ const answerText=fs.readFileSync(answerFile,'utf8');console.log('Native answer candidate types:',answerText.match(/typ (host|srflx|relay)/g));await page.evaluate(answer=>pc.setRemoteDescription({type:'answer',sdp:answer}),answerText);
+ try{await page.waitForFunction(()=>pc.connectionState==='connected'&&analysers.length===2,null,{timeout:15000});}catch(e){console.error('Browser route state',await page.evaluate(()=>({ice:pc.iceConnectionState,connection:pc.connectionState,gathering:pc.iceGatheringState})));throw e;}await page.waitForTimeout(2000);
  const results=await page.evaluate(async()=>{
   function measure(analyser){const d=new Float32Array(analyser.fftSize);analyser.getFloatTimeDomainData(d);let power=0;for(const v of d)power+=v*v;function magnitude(f){let re=0,im=0;for(let n=0;n<d.length;n++){const phase=2*Math.PI*f*n/audio.sampleRate;re+=d[n]*Math.cos(phase);im+=d[n]*Math.sin(phase);}return Math.hypot(re,im);}return {rms:Math.sqrt(power/d.length),at440:magnitude(440),at880:magnitude(880)};}
   const channels=analysers.map(measure);let bytes=0;const inbound=[];for(const stat of (await pc.getStats()).values())if(stat.type==='inbound-rtp'&&stat.kind==='audio'){bytes+=stat.bytesReceived;inbound.push(stat);}return {channels,bytes,inbound,audioState:audio.state,audioTime:audio.currentTime,trackMuted:remoteTrack.muted,playerPaused:player.paused,playError:window.playError};
