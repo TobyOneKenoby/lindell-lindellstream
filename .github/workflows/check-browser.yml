@@ -1,0 +1,31 @@
+name: Diagnose browser stereo receiver
+on:
+  push:
+    branches: [stream-browser-check]
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: macos-15
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify native source matches cached build
+        run: git diff --exit-code 7dc54b696c5e79e3b967fd2ff6b25c3d6084ea57 HEAD -- Source CMakeLists.txt 'Tests/*.cpp'
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            build
+            tls-build
+            tls-install
+          key: lsl-mac-universal-v1-7dc54b696c5e79e3b967fd2ff6b25c3d6084ea57
+          fail-on-cache-miss: true
+      - name: Install browser
+        run: |
+          npm install --no-save --package-lock=false playwright@1.51.1
+          npx playwright install chromium
+      - name: Check stereo
+        run: node Tests/BrowserTest.cjs "$GITHUB_WORKSPACE/build/Release/lsl_media_test"
