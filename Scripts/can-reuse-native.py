@@ -32,7 +32,7 @@ try:
         workflow = '.github/workflows/build-mac-vst3.yml'
         same_recipe = native_recipe(git('show', previous + ':' + workflow)) == native_recipe(Path(workflow).read_text())
         present = all(Path(p).exists() for p in (
-            'build/Release/lsl_media_test',
+            'build/Release/lsl_media_test', 'build/Release/lsl_tls_test',
             'build/lsl_plugin_test_artefacts/Release/lsl_plugin_test',
             'build/LindellStreamsLive_artefacts/Release/VST3/Lindell Streams Live.vst3',
             'build/Release/lsl_core_tests', 'build/Release/lsl_link_tests'))

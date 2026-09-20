@@ -9,7 +9,7 @@ struct MediaPeer;
 class LiveSender {
 public:
  enum class State { Offline, Connecting, Ready, Starting, Live, Error };
- struct View {State state=State::Offline;juce::String message="Paste a playlist link and private connection key.",title;int listeners=0;bool relay=false;};
+ struct View {State state=State::Offline;juce::String message="Paste a playlist link and private connection key.",title,diagnostics;int listeners=0;bool relay=false;};
  explicit LiveSender(AudioTap&);
  ~LiveSender();
  void connect(const juce::String& link,const juce::String& key);
@@ -19,6 +19,7 @@ public:
  View view()const;
  std::uint32_t capture()const noexcept{return captureGeneration.load(std::memory_order_acquire);}
  std::atomic<std::uint64_t> framesSent{0};
+ std::atomic<bool> forceTlsRelay{false};
 private:
  enum class Action { None, Disconnect, Connect, Start };
  struct Command {Action action=Action::None;std::uint32_t revision=0;juce::String link,key;};

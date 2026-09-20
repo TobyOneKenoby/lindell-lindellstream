@@ -14,6 +14,8 @@ private:
  juce::LookAndFeel_V4 look;
  juce::TextEditor link,key;
  juce::TextButton connect{"CONNECT"},live{"GO LIVE"},reset{"RESET CLIPS"},pasteLink{"PASTE"},pasteKey{"PASTE"};
+ juce::TextButton copyDiagnostics{"COPY DIAGNOSTICS"};
+ juce::ToggleButton relayTest{"Test TLS relay (TCP 443)"};
  juce::Label status,title;
  juce::TooltipWindow tips{this,600};
  std::array<float,2> displayPeak{},displayRms{};

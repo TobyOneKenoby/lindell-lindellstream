@@ -1,3 +1,10 @@
+## 0.4.0
+
+- macOS TURN over verified TLS, with an explicit relay-only test mode.
+- Show waiting until a listener actually connects; copy sanitized ICE/gathering/relay diagnostics.
+- Preserve website setup errors instead of replacing them with generic HTTP errors.
+- TLS certificate/hostname and framing CI tests. External Cloudflare audio delivery still requires a real cross-network beta test.
+
 # 0.3.1 — REAPER clipboard fix
 
 - Request keyboard focus from the VST3 host so text fields can handle Command-V.

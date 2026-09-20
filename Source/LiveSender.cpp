@@ -8,17 +8,26 @@ namespace {
 using Clock=std::chrono::steady_clock;
 std::int64_t nowMs(){return std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now().time_since_epoch()).count();}
 bool isKey(const juce::String& key){return key.length()==64&&key.containsOnly("0123456789abcdef");}
-rtc::Configuration iceConfig(const juce::var& data,bool& relay){
+rtc::Configuration iceConfig(const juce::var& data,bool& relay,bool forceTls){
  rtc::Configuration c;c.disableAutoNegotiation=true;relay=false;
+ std::vector<rtc::IceServer> udp,tls;
  if(auto entries=data.getArray())for(const auto& entry:*entries){
   juce::Array<juce::var> urls;auto u=entry["urls"];if(u.isArray())urls=*u.getArray();else urls.add(u);
-  for(const auto& v:urls){auto s=v.toString();if(!(s.startsWith("stun:")||s.startsWith("turn:")))continue;
-   // libjuice supports UDP STUN/TURN, not TURN TCP/TLS.
-   if(s.contains("transport=tcp"))continue;
-   rtc::IceServer server(s.toStdString());server.username=entry["username"].toString().toStdString();server.password=entry["credential"].toString().toStdString();
-   if(server.type==rtc::IceServer::Type::Turn)relay=true;c.iceServers.push_back(std::move(server));
+  for(const auto& v:urls){auto s=v.toString();if(!(s.startsWith("stun:")||s.startsWith("turn:")||s.startsWith("turns:")))continue;
+   try{rtc::IceServer server(s.toStdString());server.username=entry["username"].toString().toStdString();server.password=entry["credential"].toString().toStdString();
+    if(server.type==rtc::IceServer::Type::Stun){if(!forceTls)c.iceServers.push_back(server);}
+    else if(!server.username.empty()&&!server.password.empty()){
+     if(server.relayType==rtc::IceServer::RelayType::TurnUdp)udp.push_back(server);
+     if(server.relayType==rtc::IceServer::RelayType::TurnTls)tls.push_back(server);
+    }
+   }catch(...){/* A malformed URL must not stop the sender thread. */}
   }
  }
+ // libjuice accepts two TURN servers. Reserve one for UDP and one for TLS.
+ if(!forceTls&&!udp.empty())c.iceServers.push_back(udp.front());
+ if(!tls.empty()){auto preferred=std::find_if(tls.begin(),tls.end(),[](const auto& s){return s.port==443;});c.iceServers.push_back(preferred==tls.end()?tls.front():*preferred);}
+ relay=!tls.empty()||(!forceTls&&!udp.empty());
+ if(forceTls)c.iceTransportPolicy=rtc::TransportPolicy::Relay;
  return c;
 }
 }
@@ -59,8 +68,8 @@ LiveSender::Response LiveSender::post(const juce::String& action,const juce::Str
 }
 void LiveSender::controlLoop(){
  std::uint32_t active=0;juce::String session,key,link;bool verified=false;rtc::Configuration config;
- std::map<std::string,std::shared_ptr<MediaPeer>> members;std::int64_t nextPoll=0,nextIceRefresh=0;
- auto finish=[&]{captureGeneration=0;closePeers();members.clear();if(session.isNotEmpty()&&!shuttingDown){juce::StringPairArray f;f.set("session",session);post("Stop",key,f);}session.clear();};
+ juce::String peerError;std::map<std::string,std::shared_ptr<MediaPeer>> members;std::int64_t nextPoll=0,nextIceRefresh=0;
+ auto finish=[&]{captureGeneration=0;closePeers();members.clear();peerError.clear();if(session.isNotEmpty()&&!shuttingDown){juce::StringPairArray f;f.set("session",session);post("Stop",key,f);}session.clear();};
  try {
  while(!shuttingDown){
   const auto wanted=revision.load();
@@ -73,36 +82,46 @@ void LiveSender::controlLoop(){
     if(c.action==Action::Connect){verified=false;auto response=post("Resolve",key,f);
      if(revision!=active)continue;
      if(!response.ok()||response.json["protocol"].toString()!="lindell-live-webrtc-v1"){
-      setView(State::Error,response.status==401?"Connection key expired or invalid. Create a new key on the website.":response.status==403?"This key does not belong to the pasted playlist.":"Cannot connect to the Live API (HTTP "+juce::String(response.status)+"). Check the website Live update and your connection.");
-     }else{bool relay=false;config=iceConfig(response.json["iceServers"],relay);verified=true;{std::lock_guard<std::mutex> lock(stateMutex);snapshot.title=response.json["title"].toString().substring(0,120);snapshot.relay=relay;}setView(State::Ready,relay?"Connected. Ready to broadcast.":"Connected. No UDP relay configured; off-site listening may fail.");}
+      setView(State::Error,response.status==401?"Connection key expired or invalid. Create a new key on the website.":response.status==403?"This key does not belong to the pasted playlist.":(response.json["error"].isString()?response.json["error"].toString().substring(0,180):"Cannot connect to the Live API (HTTP "+juce::String(response.status)+")."));
+     }else{bool relay=false;config=iceConfig(response.json["iceServers"],relay,forceTlsRelay.load());verified=relay||!forceTlsRelay.load();{std::lock_guard<std::mutex> lock(stateMutex);snapshot.title=response.json["title"].toString().substring(0,120);snapshot.relay=relay;}setView(verified?State::Ready:State::Error,relay?"Connected. Relay configured; connection not yet tested.":"Connected, but no usable relay credentials. Check the website TURN setup.");}
     }else if(c.action==Action::Start&&verified){
      // Encoder must be usable before advertising a publisher to listeners.
      MusicEncoder checkEncoder;
      auto response=post("Start",key,f);session=response.json["session"].toString();
      if(revision!=active){finish();continue;}
-     if(!response.ok()||session.length()!=32){session.clear();setView(State::Error,response.status==409?"This playlist already has a broadcaster. End it on the website first.":"Could not start. If the request timed out, wait 25 seconds before retrying.");}
-     else{bool relay=false;config=iceConfig(response.json["iceServers"],relay);{std::lock_guard<std::mutex> lock(stateMutex);snapshot.relay=relay;}lastAudioTime=nowMs();mediaFailed=false;captureGeneration=active;nextPoll=0;nextIceRefresh=nowMs()+300000;setView(State::Live,"On air - waiting for a listener.");}
+     if(!response.ok()||session.length()!=32){session.clear();setView(State::Error,response.status==409?"This playlist already has a broadcaster. End it on the website first.":(response.json["error"].isString()?response.json["error"].toString().substring(0,180):"Could not start. If the request timed out, wait 25 seconds before retrying."));}
+     else{bool relay=false;config=iceConfig(response.json["iceServers"],relay,forceTlsRelay.load());{std::lock_guard<std::mutex> lock(stateMutex);snapshot.relay=relay;}lastAudioTime=nowMs();mediaFailed=false;captureGeneration=active;nextPoll=0;nextIceRefresh=nowMs()+300000;setView(State::Live,"On air - waiting for a listener.");}
     }
    }
   }
   if(session.isNotEmpty()&&revision==active){
    if(mediaFailed||nowMs()-lastAudioTime.load()>3000){stop();finish();active=revision.load();setView(State::Error,mediaFailed?"Audio sender stopped after a transport error. Reconnect to retry.":"Broadcast stopped: the host stopped delivering audio.");continue;}
    if(nowMs()>=nextIceRefresh){juce::StringPairArray f;f.set("link",link);auto response=post("Resolve",key,f);if(revision!=active)continue;
-    if(!response.ok()){stop();finish();active=revision.load();verified=false;setView(State::Error,"Connection authorization could not be refreshed. Reconnect to continue.");continue;}bool relay=false;config=iceConfig(response.json["iceServers"],relay);nextIceRefresh=nowMs()+300000;
+    if(!response.ok()){stop();finish();active=revision.load();verified=false;setView(State::Error,"Connection authorization could not be refreshed. Reconnect to continue.");continue;}bool relay=false;config=iceConfig(response.json["iceServers"],relay,forceTlsRelay.load());nextIceRefresh=nowMs()+300000;
    }
    if(nowMs()>=nextPoll){juce::StringPairArray f;f.set("session",session);auto response=post("Poll",key,f);if(revision!=active)continue;
     if(!response.ok()||!response.json["peers"].isArray()){stop();finish();active=revision.load();verified=false;setView(State::Error,"Live connection ended or network lost. Reconnect to continue.");continue;}
     nextPoll=nowMs()+1000;std::set<std::string> present;
     auto& entries=*response.json["peers"].getArray();if(entries.size()>8)throw std::runtime_error("Listener capacity exceeded");
     for(const auto& entry:entries){auto id=entry["id"].toString().toStdString();if(id.size()!=32)continue;present.insert(id);
-     if(!members.count(id)){try{auto offer=entry["offer"].toString();if(offer.length()>60000)continue;members[id]=std::make_shared<MediaPeer>(config,offer.toStdString(),id);}catch(...){/* Bad peer must not interrupt other listeners. */}}
+     if(!members.count(id)){try{auto offer=entry["offer"].toString();if(offer.length()>60000)continue;members[id]=std::make_shared<MediaPeer>(config,offer.toStdString(),id);}catch(...){peerError="Listener offer could not be opened. Retry Listen Live.";}}
     }
     for(auto i=members.begin();i!=members.end();){if(!present.count(i->first)){i->second->close();i=members.erase(i);}else ++i;}
     {std::lock_guard<std::mutex> lock(peerMutex);peers.clear();for(auto& pair:members)peers.push_back(pair.second);}
    }
    for(auto& item:members){auto& peer=item.second;if(!peer->answered){auto answer=peer->answer();if(!answer.empty()){juce::StringPairArray f;f.set("session",session);f.set("peer",item.first);f.set("answer",juce::String(answer));auto response=post("Answer",key,f);if(revision!=active)break;if(response.ok())peer->answered=true;else if(response.status==404){peer->answered=true;peer->close();}else{stop();}break;}}}
-   int listeners=0;for(auto& item:members)if(item.second->connected())++listeners;
-   {std::lock_guard<std::mutex> lock(stateMutex);if(revision==active){snapshot.listeners=listeners;snapshot.message=listeners>0?"On air - "+juce::String(listeners)+" connected listener(s).":"On air - waiting for a listener.";}}
+   int listeners=0;juce::String diagnostics="Build 0.4.0 | ";diagnostics+=forceTlsRelay.load()?"TLS relay test\n":"Automatic routing\n";
+   for(auto& item:members){if(item.second->connected())++listeners;diagnostics+=juce::String(item.second->diagnostic())+"\n";}
+   juce::String progress;
+   if(!peerError.isEmpty())progress=peerError;
+   else if(members.empty())progress="Waiting: no listener offer received. Check the phone's Live panel.";
+   else {auto& first=*members.begin()->second;
+    if(first.pc->iceState()==rtc::PeerConnection::IceState::Failed)progress="Connection failed. Copy diagnostics below.";
+    else if(std::chrono::steady_clock::now()-first.created>std::chrono::seconds(20)&&!first.connected())progress="Connection timed out. Copy diagnostics below, then retry Listen Live.";
+    else if(!first.answered)progress="Listener found. Gathering routes and requesting a relay allocation...";
+    else progress="Answer sent. Waiting for the listener's network connection...";
+   }
+   {std::lock_guard<std::mutex> lock(stateMutex);if(revision==active){snapshot.listeners=listeners;snapshot.diagnostics=diagnostics;snapshot.message=listeners>0?"On air - "+juce::String(listeners)+" connected listener(s).":progress;}}
   }
   std::this_thread::sleep_for(std::chrono::milliseconds(20));
  }

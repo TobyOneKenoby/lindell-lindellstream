@@ -65,7 +65,17 @@ jobs:
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5
       - name: Build plugin and test programs
         if: steps.native-reuse.outputs.reuse != 'true'
-        run: cmake --build build --config Release --parallel 3 --target LindellStreamsLive_VST3 lsl_plugin_test lsl_media_test lsl_core_tests lsl_link_tests
+        run: cmake --build build --config Release --parallel 3 --target LindellStreamsLive_VST3 lsl_plugin_test lsl_media_test lsl_core_tests lsl_link_tests lsl_tls_test
+      - name: TLS relay certificate and framing tests
+        run: |
+          mkdir -p tls-fixture
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=localhost' -addext 'subjectAltName=DNS:localhost' -keyout tls-fixture/key.pem -out tls-fixture/cert.pem
+          security add-trusted-cert -r trustRoot -k "$HOME/Library/Keychains/login.keychain-db" tls-fixture/cert.pem
+          python3 Tests/tls-echo.py tls-fixture/cert.pem tls-fixture/key.pem > tls-fixture/server.log 2>&1 &
+          TLS_FIXTURE_PID=$!
+          trap 'kill "$TLS_FIXTURE_PID"; security remove-trusted-cert tls-fixture/cert.pem' EXIT
+          sleep 1
+          build/Release/lsl_tls_test
       - name: Core and codec tests
         run: ctest --test-dir build -C Release --output-on-failure -R '^(core|playlist_links|codec_stereo)$'
       - name: Sign and verify bundle
