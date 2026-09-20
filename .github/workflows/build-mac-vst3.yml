@@ -1,7 +1,7 @@
 name: Build Lindell Streams Mac VST3
 on:
   push:
-    branches: [main]
+    branches: [main, dev/tls-relay-diagnostics]
   workflow_dispatch:
 permissions:
   contents: read
