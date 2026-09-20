@@ -1,4 +1,4 @@
-LINDELL STREAMS LIVE 0.3.1 - MAC VST3 TEST BUILD
+LINDELL STREAMS LIVE 0.4.0 - MAC VST3 TEST BUILD
 
 Quit REAPER. Copy the entire Lindell Streams Live.vst3 bundle into:
 /Library/Audio/Plug-Ins/VST3/
@@ -30,8 +30,18 @@ Website protocol: lindell-live-webrtc-v1 (v22 Live update). No website deploymen
 or relay provisioning occurs when installing this plugin. The saved v22 website
 must already be installed. At most eight peer-to-peer listeners.
 
-This build uses libjuice: UDP STUN/TURN only; TURN TCP/TLS is not supported.
-A configured UDP TURN relay is needed for reliable cross-network testing. If your
-network blocks UDP, this version may fail to connect. No relay is included.
+This Mac build supports UDP TURN and verified TURN-over-TLS, including TCP 443.
+Your website must provide temporary relay credentials. No relay account is
+included. TLS certificates are checked against macOS system trust.
+
+EXTERNAL-NETWORK TEST
+1. Enable Test TLS relay (TCP 443) before connecting.
+2. Connect, then Go Live. WAITING means no listener is connected yet.
+3. On your phone with Wi-Fi off, open the playlist and press Listen Live.
+4. ON AIR means a listener connection is established.
+5. If it fails, use COPY DIAGNOSTICS and send that text. It excludes private keys.
+The optional Website/live.js adds listener diagnostics; back up the deployed file
+before replacing it. Leave the private Cloudflare credentials in their current
+server location.
 Local native-to-Chromium stereo tests are part of CI. Your production playlist,
 external networks, REAPER and long-running sessions still need user testing.

@@ -1,5 +1,7 @@
 #pragma once
 #include "AudioCore.h"
+#include "TlsRelay.h"
+#include <sstream>
 #include <rtc/rtc.hpp>
 #include <opus.h>
 #include <samplerate.h>
@@ -8,6 +10,14 @@
 #include <stdexcept>
 #include <chrono>
 namespace lsl {
+// libdatachannel 0.23.2 lets transport=tcp override the turns scheme.
+// RFC 7065 turns over TCP still requires TLS.
+inline rtc::IceServer parseIceServer(const std::string& url) {
+ rtc::IceServer server(url);
+ if(url.rfind("turns:",0)==0||url.rfind("TURNS:",0)==0)
+  server.relayType=rtc::IceServer::RelayType::TurnTls;
+ return server;
+}
 // Owned and called by the media worker. It never touches the host's buffers.
 class MusicEncoder {
  OpusEncoder* encoder=nullptr;
@@ -52,6 +62,9 @@ public:
  }
 };
 struct MediaPeer {
+#ifdef __APPLE__
+ std::vector<std::unique_ptr<TlsRelay>> tlsRelays;
+#endif
  std::shared_ptr<rtc::PeerConnection> pc;
  std::shared_ptr<rtc::Track> track;
  std::shared_ptr<rtc::RtpPacketizationConfig> rtp;
@@ -68,7 +81,15 @@ struct MediaPeer {
   if(!media||(*media)->type()!="audio"||(*media)->direction()!=rtc::Description::Direction::RecvOnly)throw std::runtime_error("Listener offer must be receive-only audio");
   int payload=-1;for(int pt:(*media)->payloadTypes()){auto map=(*media)->rtpMap(pt);if(map&&map->format=="opus"&&map->clockRate==48000&&map->encParams=="2"){payload=pt;break;}}
   if(payload<0)throw std::runtime_error("Listener does not offer stereo Opus");
-  auto conf=config;conf.disableAutoNegotiation=true;pc=std::make_shared<rtc::PeerConnection>(conf);
+  auto conf=config;conf.disableAutoNegotiation=true;
+#ifdef __APPLE__
+  for(auto& server:conf.iceServers)if(server.type==rtc::IceServer::Type::Turn&&server.relayType==rtc::IceServer::RelayType::TurnTls){
+   auto bridge=std::make_unique<TlsRelay>(server.hostname,server.port?server.port:5349);
+   server.hostname="127.0.0.1";server.port=bridge->port();server.relayType=rtc::IceServer::RelayType::TurnUdp;
+   tlsRelays.push_back(std::move(bridge));
+  }
+#endif
+  pc=std::make_shared<rtc::PeerConnection>(conf);
   const auto ssrc=(uint32_t)(std::chrono::steady_clock::now().time_since_epoch().count()&0xffffffffu)|1u;
   rtc::Description::Audio audio((*media)->mid(),rtc::Description::Direction::SendOnly);
   audio.addOpusCodec(payload,"minptime=10;stereo=1;sprop-stereo=1;maxaveragebitrate=192000;useinbandfec=0");
@@ -78,6 +99,18 @@ struct MediaPeer {
   packetizer->addToChain(std::make_shared<rtc::RtcpSrReporter>(rtp));
   track->setMediaHandler(packetizer);
   pc->setRemoteDescription(remote);pc->setLocalDescription(rtc::Description::Type::Answer);
+ }
+ std::string diagnostic()const{
+  std::ostringstream out;out<<"ICE "<<pc->iceState()<<"; gathering "<<pc->gatheringState();
+  auto description=pc->localDescription();int relay=0,other=0;
+  if(description)for(const auto& candidate:description->candidates()){if(candidate.type()==rtc::Candidate::Type::Relayed)++relay;else ++other;}
+  out<<"; candidates "<<other<<" direct / "<<relay<<" relay";
+#ifdef __APPLE__
+  for(const auto& tunnel:tlsRelays)out<<"; TLS "<<(tunnel->state()==TlsRelay::State::Ready?"verified":tunnel->state()==TlsRelay::State::Failed?"failed":"connecting");
+#endif
+  if(answered)out<<"; answer sent";
+  rtc::Candidate local,remote;if(pc->getSelectedCandidatePair(&local,&remote))out<<"; route "<<((local.type()==rtc::Candidate::Type::Relayed||remote.type()==rtc::Candidate::Type::Relayed)?"relay":"direct");
+  return out.str();
  }
  std::string answer()const{if(pc->gatheringState()!=rtc::PeerConnection::GatheringState::Complete)return {};auto d=pc->localDescription();return d?std::string(*d):std::string{};}
  void send(const unsigned char* bytes,size_t n){

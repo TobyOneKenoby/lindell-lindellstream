@@ -1,7 +1,7 @@
 name: Build Lindell Streams Mac VST3
 on:
   push:
-    branches: [main]
+    branches: [main, dev/tls-relay-diagnostics]
   workflow_dispatch:
 permissions:
   contents: read
@@ -65,7 +65,18 @@ jobs:
             -DCMAKE_POLICY_VERSION_MINIMUM=3.5
       - name: Build plugin and test programs
         if: steps.native-reuse.outputs.reuse != 'true'
-        run: cmake --build build --config Release --parallel 3 --target LindellStreamsLive_VST3 lsl_plugin_test lsl_media_test lsl_core_tests lsl_link_tests
+        run: cmake --build build --config Release --parallel 3 --target LindellStreamsLive_VST3 lsl_plugin_test lsl_media_test lsl_core_tests lsl_link_tests lsl_tls_test
+      - name: TLS relay certificate and framing tests
+        timeout-minutes: 2
+        run: |
+          mkdir -p tls-fixture
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=localhost' -addext 'subjectAltName=DNS:localhost' -keyout tls-fixture/key.pem -out tls-fixture/cert.pem
+          sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain tls-fixture/cert.pem
+          python3 Tests/tls-echo.py tls-fixture/cert.pem tls-fixture/key.pem > tls-fixture/server.log 2>&1 &
+          TLS_FIXTURE_PID=$!
+          trap 'kill "$TLS_FIXTURE_PID"' EXIT
+          sleep 1
+          build/Release/lsl_tls_test
       - name: Core and codec tests
         run: ctest --test-dir build -C Release --output-on-failure -R '^(core|playlist_links|codec_stereo)$'
       - name: Sign and verify bundle
@@ -84,6 +95,15 @@ jobs:
           npx playwright install chromium
       - name: Verify decoded stereo audio in Chromium
         run: node Tests/BrowserTest.cjs "$GITHUB_WORKSPACE/build/Release/lsl_media_test"
+      - name: Verify decoded stereo through a TLS-only TURN server
+        run: |
+          brew install coturn
+          RELAY_TEST_IP=$(ipconfig getifaddr en0)
+          turnserver -n --log-file=stdout --simple-log -v --no-cli --no-dtls --no-udp --no-tcp-relay --listening-ip=127.0.0.1 --relay-ip="$RELAY_TEST_IP" --listening-port=18445 --tls-listening-port=18444 --min-port=49160 --max-port=49200 --cert="$GITHUB_WORKSPACE/tls-fixture/cert.pem" --pkey="$GITHUB_WORKSPACE/tls-fixture/key.pem" --realm=lindell-ci --lt-cred-mech --user=fixture:fixture-password --allow-loopback-peers --no-multicast-peers > tls-fixture/turn.log 2>&1 &
+          TURN_FIXTURE_PID=$!
+          trap 'kill "$TURN_FIXTURE_PID"' EXIT
+          sleep 2
+          if ! LSL_TEST_TLS_RELAY=1 node Tests/BrowserTest.cjs "$GITHUB_WORKSPACE/build/Release/lsl_media_test"; then tail -n 100 tls-fixture/turn.log; exit 1; fi
       - name: Package plugin
         env:
           NATIVE_SOURCE: ${{ steps.native-reuse.outputs.source }}
@@ -91,6 +111,7 @@ jobs:
           mkdir -p release
           ditto 'build/LindellStreamsLive_artefacts/Release/VST3/Lindell Streams Live.vst3' 'release/Lindell Streams Live.vst3'
           cp INSTALL-PLUGIN.txt Lindell-Streams-Preview.png dependencies.txt release/
+          cp -R Website release/
           mkdir -p release/ThirdParty
           cp build/_deps/rtc-src/LICENSE release/ThirdParty/libdatachannel.txt
           cp build/_deps/opus-src/COPYING release/ThirdParty/opus.txt
