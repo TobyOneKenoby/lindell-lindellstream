@@ -14,7 +14,7 @@ rtc::Configuration iceConfig(const juce::var& data,bool& relay,bool forceTls){
  if(auto entries=data.getArray())for(const auto& entry:*entries){
   juce::Array<juce::var> urls;auto u=entry["urls"];if(u.isArray())urls=*u.getArray();else urls.add(u);
   for(const auto& v:urls){auto s=v.toString();if(!(s.startsWith("stun:")||s.startsWith("turn:")||s.startsWith("turns:")))continue;
-   try{rtc::IceServer server(s.toStdString());server.username=entry["username"].toString().toStdString();server.password=entry["credential"].toString().toStdString();
+   try{auto server=parseIceServer(s.toStdString());server.username=entry["username"].toString().toStdString();server.password=entry["credential"].toString().toStdString();
     if(server.type==rtc::IceServer::Type::Stun){if(!forceTls)c.iceServers.push_back(server);}
     else if(!server.username.empty()&&!server.password.empty()){
      if(server.relayType==rtc::IceServer::RelayType::TurnUdp)udp.push_back(server);

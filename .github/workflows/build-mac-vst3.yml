@@ -99,7 +99,7 @@ jobs:
         run: |
           brew install coturn
           RELAY_TEST_IP=$(ipconfig getifaddr en0)
-          turnserver -n --no-cli --no-dtls --no-udp --no-tcp-relay --listening-ip=127.0.0.1 --relay-ip="$RELAY_TEST_IP" --listening-port=18445 --tls-listening-port=18444 --min-port=49160 --max-port=49200 --cert="$GITHUB_WORKSPACE/tls-fixture/cert.pem" --pkey="$GITHUB_WORKSPACE/tls-fixture/key.pem" --realm=lindell-ci --lt-cred-mech --user=fixture:fixture-password --allow-loopback-peers --no-multicast-peers > tls-fixture/turn.log 2>&1 &
+          turnserver -n --log-file=stdout --simple-log -v --no-cli --no-dtls --no-udp --no-tcp-relay --listening-ip=127.0.0.1 --relay-ip="$RELAY_TEST_IP" --listening-port=18445 --tls-listening-port=18444 --min-port=49160 --max-port=49200 --cert="$GITHUB_WORKSPACE/tls-fixture/cert.pem" --pkey="$GITHUB_WORKSPACE/tls-fixture/key.pem" --realm=lindell-ci --lt-cred-mech --user=fixture:fixture-password --allow-loopback-peers --no-multicast-peers > tls-fixture/turn.log 2>&1 &
           TURN_FIXTURE_PID=$!
           trap 'kill "$TURN_FIXTURE_PID"' EXIT
           sleep 2

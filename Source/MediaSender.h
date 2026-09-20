@@ -10,6 +10,14 @@
 #include <stdexcept>
 #include <chrono>
 namespace lsl {
+// libdatachannel 0.23.2 lets transport=tcp override the turns scheme.
+// RFC 7065 turns over TCP still requires TLS.
+inline rtc::IceServer parseIceServer(const std::string& url) {
+ rtc::IceServer server(url);
+ if(url.rfind("turns:",0)==0||url.rfind("TURNS:",0)==0)
+  server.relayType=rtc::IceServer::RelayType::TurnTls;
+ return server;
+}
 // Owned and called by the media worker. It never touches the host's buffers.
 class MusicEncoder {
  OpusEncoder* encoder=nullptr;
