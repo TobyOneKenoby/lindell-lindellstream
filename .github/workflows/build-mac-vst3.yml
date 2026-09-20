@@ -111,6 +111,7 @@ jobs:
           mkdir -p release
           ditto 'build/LindellStreamsLive_artefacts/Release/VST3/Lindell Streams Live.vst3' 'release/Lindell Streams Live.vst3'
           cp INSTALL-PLUGIN.txt Lindell-Streams-Preview.png dependencies.txt release/
+          cp -R Website release/
           mkdir -p release/ThirdParty
           cp build/_deps/rtc-src/LICENSE release/ThirdParty/libdatachannel.txt
           cp build/_deps/opus-src/COPYING release/ThirdParty/opus.txt

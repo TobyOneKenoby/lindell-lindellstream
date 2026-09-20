@@ -3,7 +3,7 @@ const fs=require('node:fs');const http=require('node:http');const {spawn}=requir
 (async()=>{
  const temp=fs.mkdtempSync(path.join(os.tmpdir(),'lindell-live-'));let sender,browser;const server=http.createServer((_,res)=>{res.end('<!doctype html><title>Lindell stereo receiver test</title>');});
  try{
- await new Promise(r=>server.listen(0,'127.0.0.1',r));browser=await chromium.launch({headless:true,args:['--autoplay-policy=no-user-gesture-required','--use-fake-device-for-media-stream']});const page=await browser.newPage();await page.goto(`http://127.0.0.1:${server.address().port}`);
+ await new Promise(r=>server.listen(0,'127.0.0.1',r));browser=await chromium.launch({headless:true,args:['--autoplay-policy=no-user-gesture-required','--use-fake-device-for-media-stream','--disable-features=WebRtcHideLocalIpsWithMdns']});const page=await browser.newPage();await page.goto(`http://127.0.0.1:${server.address().port}`);
  const offer=await page.evaluate(async()=>{
   const pc=window.pc=new RTCPeerConnection({iceServers:[]});pc.addTransceiver('audio',{direction:'recvonly'});
   window.audio=new AudioContext({sampleRate:48000});await audio.resume();window.analysers=[];
@@ -11,6 +11,7 @@ const fs=require('node:fs');const http=require('node:http');const {spawn}=requir
   const description=await pc.createOffer();description.sdp=description.sdp.replace(/a=fmtp:(\d+) ([^\r\n]*)/g,(m,pt,params)=>description.sdp.includes(`a=rtpmap:${pt} opus/48000/2`)?`a=fmtp:${pt} ${params};stereo=1;sprop-stereo=1;maxaveragebitrate=192000`:m);
   await pc.setLocalDescription(description);await new Promise((resolve,reject)=>{if(pc.iceGatheringState==='complete')return resolve();const timeout=setTimeout(()=>reject(Error('Browser ICE gathering timeout')),10000);pc.onicegatheringstatechange=()=>{if(pc.iceGatheringState==='complete'){clearTimeout(timeout);resolve();}};});return pc.localDescription.sdp;
  });
+ console.log('Browser offer candidate types:',offer.match(/typ (host|srflx|relay)/g),'mDNS:',offer.includes('.local'));
  const offerFile=path.join(temp,'offer.sdp'),answerFile=path.join(temp,'answer.sdp');fs.writeFileSync(offerFile,offer);
  sender=spawn(process.argv[2],['--browser',offerFile,answerFile],{stdio:['ignore','pipe','pipe']});let senderError='';sender.stderr.on('data',b=>{senderError+=b.toString();process.stderr.write(b);});sender.stdout.on('data',b=>process.stdout.write(b));
  const completion=new Promise((resolve,reject)=>{sender.once('error',reject);sender.once('exit',code=>resolve(code));});
